@@ -310,6 +310,7 @@ void ShowWritePartialResults(int count,int nOriginal, int nShared, int *indexes,
 int main(int argc, char *argv[]){
     int nShared=500;
 	int steps=100;
+    int M=4;
     double *sharedBuff;
     double *localBuff;
     double *radius;
@@ -324,6 +325,9 @@ int main(int argc, char *argv[]){
 		nShared=atoi(argv[1]);
 		if(argc>2){
 			steps=atoi(argv[2]);
+            if(argc>4){
+                M=atoi(argv[4]);
+            }
 		}
 	}
 
