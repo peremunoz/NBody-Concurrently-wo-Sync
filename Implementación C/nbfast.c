@@ -423,7 +423,7 @@ int main(int argc, char *argv[]){
 
 			double t=glfwGetTime();
 			//We build the tree, which needs a pointer to the initial node, the buffer holding position and mass of the particles, indexes and number of particles
-        	buildTree(tree,sharedBuff,indexes,nShared);
+        	buildTree(tree,sharedBuff,indexes,nShared); //                             ¡¡¡ HOT POINT !!!
         	//Now that it is built, we calculate the forces per particle
 			for(i=0;i<nLocal;i++){
 				//First we make them zero in both directions
@@ -433,7 +433,7 @@ int main(int argc, char *argv[]){
             	for(s=0;s<4;s++){
 					//Now, for each children that is not empty, we calculate the force (the calculateForce() function is recursive)
                 	if(tree->children[s]!=NULL)
-                		calculateForce(tree->children[s],sharedBuff,localBuff,indexes[i]);
+                		calculateForce(tree->children[s],sharedBuff,localBuff,indexes[i]);//       ¡¡¡ HOT POINT !!!
             	}
 				//We calculate the new position of the particles according to the accelerations
             	moveParticle(sharedBuff,localBuff,indexes[i]);
