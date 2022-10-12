@@ -2,8 +2,9 @@
 #include<stdlib.h>
 #include<math.h>
 #include<time.h>
-#include <stdio.h>
+#include<stdio.h>
 #include<unistd.h>
+#include<pthread.h>
 
 #ifdef D_GLFW_SUPPORT
     #include<GLFW/glfw3.h>
@@ -39,6 +40,19 @@ struct Node{
 
     double GCX;
     double GCY;
+};
+
+struct GraphicInterfaceStruct{
+    struct Node* tree;
+    double* sharedBuff;
+    int* indexes;
+    int nShared;
+    int nLocal;
+    double* localBuff;
+    double* radius;
+    int count;
+    int steps;
+    int nOriginal;
 };
 
 void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
@@ -305,7 +319,94 @@ void ShowWritePartialResults(int count,int nOriginal, int nShared, int *indexes,
     }
 }
 
+int GraphicInterface(struct GraphicInterfaceStruct *data) {
 
+    //Unpack the necessarly variables from the data struct
+    struct Node* tree = data->tree;
+    double* sharedBuff = data->sharedBuff;
+    int* indexes = data->indexes;
+    int nShared = data->nShared;
+    int nLocal = data->nLocal;
+    double* localBuff = data->localBuff;
+    double* radius = data->radius;
+    int count = data->count;
+    int steps = data->steps;
+    int nOriginal = data->nOriginal;
+
+    //If you only care about the algorithm, skip until next comment
+    if(!glfwInit()){
+        printf("Failed to start GLFW\n");
+        return -1;
+    }
+    GLFWwindow *window = glfwCreateWindow(2000,2000,"Simulation",NULL,NULL);
+    if(!window){
+        printf("Failed to open window\n");
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0,1,0,1,0,1);
+    glMatrixMode(GL_MODELVIEW);
+
+    while(!glfwWindowShouldClose(window) && count<=steps){
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        double t=glfwGetTime();
+        //We build the tree, which needs a pointer to the initial node, the buffer holding position and mass of the particles, indexes and number of particles
+        buildTree(tree,sharedBuff,indexes,nShared); //                             ¡¡¡ HOT POINT !!!
+        //Now that it is built, we calculate the forces per particle
+        for(int i=0;i<nLocal;i++){
+            //First we make them zero in both directions
+            localBuff[AX(indexes[i])]=0;
+            localBuff[AY(indexes[i])]=0;
+            int s;
+            for(s=0;s<4;s++){
+                //Now, for each children that is not empty, we calculate the force (the calculateForce() function is recursive)
+                if(tree->children[s]!=NULL)
+                    calculateForce(tree->children[s],sharedBuff,localBuff,indexes[i]);//       ¡¡¡ HOT POINT !!!
+            }
+            //We calculate the new position of the particles according to the accelerations
+            moveParticle(sharedBuff,localBuff,indexes[i]);
+            //This is to kick out particles that escape the rectangle (0,1)x(0,1), so we just delete the index.
+            if(sharedBuff[PX(indexes[i])]<=0 || sharedBuff[PX(indexes[i])]>=1 || sharedBuff[PY(indexes[i])] <=0 || sharedBuff[PY(indexes[i])] >= 1){
+                int r;
+                nLocal--;
+                nShared--;
+                for(r=i;r<nLocal;r++){
+                    indexes[r]=indexes[r+1];
+                }
+                i--;
+            }
+        }
+
+        SaveGalaxy(count, nShared, indexes, sharedBuff);
+
+        //This is only for visualization
+        drawBarnesHutDivisions(tree);
+        int k;
+        for(k=0;k<nShared;k++){
+            drawParticle(sharedBuff,radius,indexes[k]);
+        }
+
+        t=glfwGetTime()-t;
+        if(t<0.013){
+            usleep(1000*1000*(0.013-t));
+        }
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+
+        ShowWritePartialResults(count, nOriginal, nShared, indexes, sharedBuff);
+
+        //We advance one step
+        count++;
+    }
+    glfwTerminate();
+    return 0;
+}
 
 int main(int argc, char *argv[]){
     int nShared=500;
@@ -400,78 +501,23 @@ int main(int argc, char *argv[]){
 	//If we need to visualize
 #ifdef D_GLFW_SUPPORT
 	if(argc>3){
-		//If you only care about the algorithm, skip until next comment
-	    if(!glfwInit()){
-    	    printf("Failed to start GLFW\n");
-        	return -1;
-    	}
-    	GLFWwindow *window = glfwCreateWindow(2000,2000,"Simulation",NULL,NULL);
-    	if(!window){
-        	printf("Failed to open window\n");
-        	return -1;
-    	}
-    	glfwMakeContextCurrent(window);
-    	glfwSwapInterval(1);
+        // Create struct for passing through argument all the necessary data for GraphicInterface function
+        struct GraphicInterfaceStruct* data = malloc(sizeof (struct GraphicInterfaceStruct));
+        data->tree = tree;
+        data->sharedBuff = sharedBuff;
+        data->indexes = indexes;
+        data->nShared = nShared;
+        data->nLocal = nLocal;
+        data->localBuff = localBuff;
+        data->radius = radius;
+        data->count = count;
+        data->steps = steps;
+        data->nOriginal = nOriginal;
 
-    	glMatrixMode(GL_PROJECTION);
-    	glLoadIdentity();
-    	glOrtho(0,1,0,1,0,1);
-    	glMatrixMode(GL_MODELVIEW);
-
-    	while(!glfwWindowShouldClose(window) && count<=steps){
-        	glClear(GL_COLOR_BUFFER_BIT);
-
-			double t=glfwGetTime();
-			//We build the tree, which needs a pointer to the initial node, the buffer holding position and mass of the particles, indexes and number of particles
-        	buildTree(tree,sharedBuff,indexes,nShared); //                             ¡¡¡ HOT POINT !!!
-        	//Now that it is built, we calculate the forces per particle
-			for(i=0;i<nLocal;i++){
-				//First we make them zero in both directions
-            	localBuff[AX(indexes[i])]=0;
-            	localBuff[AY(indexes[i])]=0;
-            	int s;
-            	for(s=0;s<4;s++){
-					//Now, for each children that is not empty, we calculate the force (the calculateForce() function is recursive)
-                	if(tree->children[s]!=NULL)
-                		calculateForce(tree->children[s],sharedBuff,localBuff,indexes[i]);//       ¡¡¡ HOT POINT !!!
-            	}
-				//We calculate the new position of the particles according to the accelerations
-            	moveParticle(sharedBuff,localBuff,indexes[i]);
-				//This is to kick out particles that escape the rectangle (0,1)x(0,1), so we just delete the index.
-            	if(sharedBuff[PX(indexes[i])]<=0 || sharedBuff[PX(indexes[i])]>=1 || sharedBuff[PY(indexes[i])] <=0 || sharedBuff[PY(indexes[i])] >= 1){
-                	int r;
-                	nLocal--;
-                	nShared--;
-                	for(r=i;r<nLocal;r++){
-                    	indexes[r]=indexes[r+1];
-                	}
-                	i--;
-            	}
-        	}
-
-            SaveGalaxy(count, nShared, indexes, sharedBuff);
-
-			//This is only for visualization
-        	drawBarnesHutDivisions(tree);
-        	int k;
-        	for(k=0;k<nShared;k++){
-            	drawParticle(sharedBuff,radius,indexes[k]);
-        	}
-
-			t=glfwGetTime()-t;
-			if(t<0.013){
-				usleep(1000*1000*(0.013-t));
-			}
-
-        	glfwSwapBuffers(window);
-        	glfwPollEvents();
-
-            ShowWritePartialResults(count, nOriginal, nShared, indexes, sharedBuff);
-
-            //We advance one step
-			count++;
-    	}
-    	glfwTerminate();
+        // Execute the graphic version in another thread
+        pthread_t graphicTid;
+        pthread_create(&graphicTid, NULL, (void *(*) (void *)) GraphicInterface, data);
+        pthread_join(graphicTid, NULL);
 	} else {
 #endif
 		//This is the pure algorithm, without visualization
