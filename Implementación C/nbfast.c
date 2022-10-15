@@ -1,4 +1,5 @@
 #include<stdio.h>
+#include<string.h>
 #include<stdlib.h>
 #include<math.h>
 #include<time.h>
@@ -53,9 +54,32 @@ struct GraphicInterfaceStruct{
     int count;
     int steps;
     int nOriginal;
+    int M;
 };
 
-void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
+struct BuildTreeStruct{
+    struct Node* tree;
+    double* sharedBuff;
+    int* indexes;
+    int nShared;
+    int remainingThreads;
+};
+
+void buildTree(struct BuildTreeStruct* data){
+    // Unpack the variables from the data struct
+    struct Node* node = data->tree;
+    double* shrdBuff = data->sharedBuff;
+    int* indexes = data->indexes;
+    int n = data->nShared;
+    int remainingThreads = data->remainingThreads;
+
+    // Create variables for controlling the concurrency
+    int possibleSubThreads = 0;
+    int remainingThreadsPerSubThread = 0;
+    int extraThreadsPerSubThread = 0;
+
+    pthread_t NE_Tid = 0, NW_Tid = 0, SW_Tid = 0, SE_Tid = 0;
+
     if(n==1){ //This is an external node!
         node->external=1;
         node->CMX=shrdBuff[PX(indexes[0])];
@@ -92,6 +116,17 @@ void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
                 }
             }
         }
+
+        // Pre-calculate how many possible subThreads we could create
+        if(NEc>0) possibleSubThreads++;
+        if(NWc>0) possibleSubThreads++;
+        if(SWc>0) possibleSubThreads++;
+        if(SEc>0) possibleSubThreads++;
+        // How many threads can we assign to each subThread
+        remainingThreadsPerSubThread = remainingThreads / possibleSubThreads;
+        extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
+
+
 		//If there are particles in the NorthWest quarter
         if(NEc>0){
 			//This instruction declares a new node in the position 0
@@ -104,7 +139,29 @@ void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
             node->children[0]->GCX=(node->GCX+node->TRX)/2;
             node->children[0]->GCY=(node->GCY+node->TRY)/2;
 			//We build a tree in the new node, with the particles that are inside
-            buildTree(node->children[0],shrdBuff,NEi,NEc);
+            // Create the build tree struct
+            struct BuildTreeStruct* NE_Data = malloc(sizeof(struct BuildTreeStruct));
+            NE_Data->tree = node->children[0];
+            NE_Data->sharedBuff = shrdBuff;
+            NE_Data->indexes = NEi;
+            NE_Data->nShared = NEc;
+            NE_Data->remainingThreads = 0;
+            // If we have remaining threads to create, we build the sub-tree concurrently
+            if (remainingThreads > 0) {
+                int assignedThreadsToSubThread = remainingThreadsPerSubThread;
+
+                if (extraThreadsPerSubThread > 0) {
+                    assignedThreadsToSubThread++;
+                    extraThreadsPerSubThread--;
+                }
+
+                remainingThreads = remainingThreads - assignedThreadsToSubThread;
+
+                NE_Data->remainingThreads = assignedThreadsToSubThread;
+                pthread_create(&NE_Tid, NULL, (void *(*) (void *)) buildTree, NE_Data);
+            } else {
+                buildTree(NE_Data);
+            }
         } else {
 			//If not, we set the children to null
             node->children[0]=NULL;
@@ -118,7 +175,29 @@ void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
             node->children[1]->LLY=node->GCY;
             node->children[1]->GCX=(node->LLX+node->GCX)/2;
             node->children[1]->GCY=(node->GCY+node->TRY)/2;
-            buildTree(node->children[1],shrdBuff,NWi,NWc);
+            // Create the build tree struct
+            struct BuildTreeStruct* NW_Data = malloc(sizeof(struct BuildTreeStruct));
+            NW_Data->tree = node->children[1];
+            NW_Data->sharedBuff = shrdBuff;
+            NW_Data->indexes = NWi;
+            NW_Data->nShared = NWc;
+            NW_Data->remainingThreads = 0;
+            // If we have remaining threads to create, we build the sub-tree concurrently
+            if (remainingThreads > 0) {
+                int assignedThreadsToSubThread = remainingThreadsPerSubThread;
+
+                if (extraThreadsPerSubThread > 0) {
+                    assignedThreadsToSubThread++;
+                    extraThreadsPerSubThread--;
+                }
+
+                remainingThreads = remainingThreads - assignedThreadsToSubThread;
+
+                NW_Data->remainingThreads = assignedThreadsToSubThread;
+                pthread_create(&NW_Tid, NULL, (void *(*) (void *)) buildTree, NW_Data);
+            } else {
+                buildTree(NW_Data);
+            }
         } else {
             node->children[1]=NULL;
         }
@@ -130,7 +209,29 @@ void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
             node->children[2]->LLY=node->LLY;
             node->children[2]->GCX=(node->LLX+node->GCX)/2;
             node->children[2]->GCY=(node->LLY+node->GCY)/2;
-            buildTree(node->children[2],shrdBuff,SWi,SWc);
+            // Create the build tree struct
+            struct BuildTreeStruct* SW_Data = malloc(sizeof(struct BuildTreeStruct));
+            SW_Data->tree = node->children[2];
+            SW_Data->sharedBuff = shrdBuff;
+            SW_Data->indexes = SWi;
+            SW_Data->nShared = SWc;
+            SW_Data->remainingThreads = 0;
+            // If we have remaining threads to create, we build the sub-tree concurrently
+            if (remainingThreads > 0) {
+                int assignedThreadsToSubThread = remainingThreadsPerSubThread;
+
+                if (extraThreadsPerSubThread > 0) {
+                    assignedThreadsToSubThread++;
+                    extraThreadsPerSubThread--;
+                }
+
+                remainingThreads = remainingThreads - assignedThreadsToSubThread;
+
+                SW_Data->remainingThreads = assignedThreadsToSubThread;
+                pthread_create(&SW_Tid, NULL, (void *(*) (void *)) buildTree, SW_Data);
+            } else {
+                buildTree(SW_Data);
+            }
         } else {
             node->children[2]=NULL;
         }
@@ -142,13 +243,41 @@ void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
             node->children[3]->LLY=node->LLY;
             node->children[3]->GCX=(node->GCX+node->TRX)/2;
             node->children[3]->GCY=(node->LLY+node->GCY)/2;
-            buildTree(node->children[3],shrdBuff,SEi,SEc);
+            // Create the build tree struct
+            struct BuildTreeStruct* SE_Data = malloc(sizeof(struct BuildTreeStruct));
+            SE_Data->tree = node->children[3];
+            // Copy the shrdBuff to a new buffer, for avoiding multiple accessing issues
+            SE_Data->sharedBuff = shrdBuff;
+            SE_Data->indexes = SEi;
+            SE_Data->nShared = SEc;
+            SE_Data->remainingThreads = 0;
+            // If we have remaining threads to create, we build the sub-tree concurrently
+            if (remainingThreads > 0) {
+                int assignedThreadsToSubThread = remainingThreadsPerSubThread;
+
+                if (extraThreadsPerSubThread > 0) {
+                    assignedThreadsToSubThread++;
+                    extraThreadsPerSubThread--;
+                }
+
+                remainingThreads = remainingThreads - assignedThreadsToSubThread;
+
+                SE_Data->remainingThreads = assignedThreadsToSubThread;
+                pthread_create(&SE_Tid, NULL, (void *(*) (void *)) buildTree, SE_Data);
+            } else {
+                buildTree(SE_Data);
+            }
         } else {
             node->children[3]=NULL;
         }
         node->mass=0;
         node->CMX=0;
         node->CMY=0;
+        // Wait for the 4 node trees creation to finish
+        if (NE_Tid != 0) pthread_join(NE_Tid, NULL);
+        if (NW_Tid != 0) pthread_join(NW_Tid, NULL);
+        if (SW_Tid != 0) pthread_join(SW_Tid, NULL);
+        if (SE_Tid != 0) pthread_join(SE_Tid, NULL);
 		//Now that we have finished building the 4 trees beneath this node, we calculate the Center of Mass
 		//based on the center of mass of the children
         for(i=0;i<4;i++){
@@ -332,6 +461,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
     int count = data->count;
     int steps = data->steps;
     int nOriginal = data->nOriginal;
+    int M = data->M;
 
     //If you only care about the algorithm, skip until next comment
     if(!glfwInit()){
@@ -355,8 +485,18 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
         glClear(GL_COLOR_BUFFER_BIT);
 
         double t=glfwGetTime();
+
         //We build the tree, which needs a pointer to the initial node, the buffer holding position and mass of the particles, indexes and number of particles
-        buildTree(tree,sharedBuff,indexes,nShared); //                             ¡¡¡ HOT POINT !!!
+        // Create a BuildTreeStruct for passing the params to the buildTree function
+        struct BuildTreeStruct* data = malloc(sizeof(struct BuildTreeStruct));
+        data->tree = tree;
+        data->sharedBuff = sharedBuff;
+        data->indexes = indexes;
+        data->nShared = nShared;
+        data->remainingThreads = M;
+
+        buildTree(data);
+
         //Now that it is built, we calculate the forces per particle
         for(int i=0;i<nLocal;i++){
             //First we make them zero in both directions
@@ -513,10 +653,13 @@ int main(int argc, char *argv[]){
         data->count = count;
         data->steps = steps;
         data->nOriginal = nOriginal;
+        data->M = M;
 
         // Execute the graphic version in another thread
         pthread_t graphicTid;
         pthread_create(&graphicTid, NULL, (void *(*) (void *)) GraphicInterface, data);
+
+        // Wait for it to finish
         pthread_join(graphicTid, NULL);
 	} else {
 #endif
@@ -524,7 +667,15 @@ int main(int argc, char *argv[]){
 		//system("mkdir res");
     	while(count<=steps){
 			//First we build the tree
-        	buildTree(tree,sharedBuff,indexes,nShared);
+            // Create a BuildTreeStruct for passing the params to the buildTree function
+            struct BuildTreeStruct* data = malloc(sizeof(struct BuildTreeStruct));
+            data->tree = tree;
+            data->sharedBuff = sharedBuff;
+            data->indexes = indexes;
+            data->nShared = nShared;
+            data->remainingThreads = M;
+        	buildTree(data);
+
         	for(i=0;i<nLocal;i++){
 				//Set initial accelerations to zero
             	localBuff[AX(indexes[i])]=0;
