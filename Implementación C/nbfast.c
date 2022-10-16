@@ -65,6 +65,14 @@ struct BuildTreeStruct{
     int remainingThreads;
 };
 
+struct CalculateForceStruct{
+    struct Node* tree;
+    double* sharedBuff;
+    double* localBuff;
+    int index;
+    int remainingThreads;
+};
+
 void buildTree(struct BuildTreeStruct* data){
     // Unpack the variables from the data struct
     struct Node* node = data->tree;
@@ -246,7 +254,6 @@ void buildTree(struct BuildTreeStruct* data){
             // Create the build tree struct
             struct BuildTreeStruct* SE_Data = malloc(sizeof(struct BuildTreeStruct));
             SE_Data->tree = node->children[3];
-            // Copy the shrdBuff to a new buffer, for avoiding multiple accessing issues
             SE_Data->sharedBuff = shrdBuff;
             SE_Data->indexes = SEi;
             SE_Data->nShared = SEc;
@@ -293,9 +300,23 @@ void buildTree(struct BuildTreeStruct* data){
     }
 }
 
-void calculateForce(struct Node *tree, double *shrdBuff, double *localBuff, int index){
+void calculateForce(struct CalculateForceStruct* data){
+    // Unpack the information from the data struct
+    struct Node *tree = data->tree;
+    double* shrdBuff = data->sharedBuff;
+    double* localBuff = data->localBuff;
+    int index = data->index;
+    int remainingThreads = data->remainingThreads;
+
     double distance = sqrt((tree->CMX-shrdBuff[PX(index)])*(tree->CMX-shrdBuff[PX(index)])+
                            (tree->CMY-shrdBuff[PY(index)])*(tree->CMY-shrdBuff[PY(index)]));
+    // Necessary variables for concurrency
+    pthread_t *tids = malloc(sizeof(pthread_t) * 4);
+    int tids_index = 0;
+    int possibleSubThreads = 0;
+    int remainingThreadsPerSubThread = 0;
+    int extraThreadsPerSubThread = 0;
+
 	//First we check if the node is not actually the same particle we are calculating
     if(distance>0){
 		//Now, we know it is not because the is some distance between the Center of Mass and the particle
@@ -312,11 +333,48 @@ void calculateForce(struct Node *tree, double *shrdBuff, double *localBuff, int 
         } else {
 			//If not, we recursively call the calculateForce() function in the children that are not empty.
             int i;
+            //First we calculate the valid children of the node for assigning threads correctly.
             for(i=0;i<4;i++){
                 if(tree->children[i]!=NULL){
-                    calculateForce(tree->children[i],shrdBuff,localBuff,index);
+                    possibleSubThreads++;
                 }
             }
+            //We calculate how many threads per children have to be assigned.
+            remainingThreadsPerSubThread = remainingThreads / possibleSubThreads;
+            extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
+
+            for(i=0;i<4;i++){
+                if(tree->children[i]!=NULL){
+                    //Create the CalculateForce struct
+                    struct CalculateForceStruct* data = malloc(sizeof(struct CalculateForceStruct));
+                    data->tree = tree->children[i];
+                    data->sharedBuff = shrdBuff;
+                    data->localBuff = localBuff;
+                    data->index = index;
+                    data->remainingThreads = 0;
+                    // If there are free threads to be created, we execute the next recursive call concurrently.
+                    if(remainingThreads > 0) {
+                        int assignedThreadsToSubThread = remainingThreadsPerSubThread;
+
+                        if (extraThreadsPerSubThread > 0) {
+                            assignedThreadsToSubThread++;
+                            extraThreadsPerSubThread--;
+                        }
+
+                        data->remainingThreads = assignedThreadsToSubThread;
+
+                        remainingThreads = remainingThreads - assignedThreadsToSubThread;
+                        pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, data);
+                        tids_index++;
+                    } else {
+                        calculateForce(data);
+                    }
+                }
+            }
+            for(i=0;i<tids_index;i++) {
+                pthread_join(tids[i], NULL);
+            }
+            tids_index = 0;
         }
     }
 }
@@ -497,6 +555,14 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
 
         buildTree(data);
 
+        // Variables for concurrency
+        pthread_t *tids = malloc(sizeof(pthread_t) * 4);
+        int tids_index = 0;
+        int possibleSubThreads = 0;
+        int remainingThreadsPerSubThread = 0;
+        int extraThreadsPerSubThread = 0;
+        int remainingThreads = M;
+
         //Now that it is built, we calculate the forces per particle
         for(int i=0;i<nLocal;i++){
             //First we make them zero in both directions
@@ -504,10 +570,42 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
             localBuff[AY(indexes[i])]=0;
             int s;
             for(s=0;s<4;s++){
-                //Now, for each children that is not empty, we calculate the force (the calculateForce() function is recursive)
                 if(tree->children[s]!=NULL)
-                    calculateForce(tree->children[s],sharedBuff,localBuff,indexes[i]);//       ¡¡¡ HOT POINT !!!
+                    possibleSubThreads++;
             }
+            for(s=0;s<4;s++){
+                //Recursively calculate accelerations
+                if(tree->children[s]!=NULL){
+                    //Create the CalculateForce struct
+                    struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
+                    forceData->tree = tree->children[s];
+                    forceData->sharedBuff = sharedBuff;
+                    forceData->localBuff = localBuff;
+                    forceData->index = indexes[i];
+                    forceData->remainingThreads = 0;
+                    // If there are free threads to be created, we execute the next recursive call concurrently.
+                    if(remainingThreads > 0) {
+
+                        int assignedThreadsToSubThread = remainingThreadsPerSubThread;
+
+                        if (extraThreadsPerSubThread > 0) {
+                            assignedThreadsToSubThread++;
+                            extraThreadsPerSubThread--;
+                        }
+
+                        forceData->remainingThreads = assignedThreadsToSubThread;
+                        remainingThreads = remainingThreads - assignedThreadsToSubThread;
+                        pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData);
+                        tids_index++;
+                    } else {
+                        calculateForce(forceData);
+                    }
+                }
+            }
+            for(s=0;s<tids_index;s++) {
+                pthread_join(tids[s], NULL);
+            }
+            tids_index = 0;
             //We calculate the new position of the particles according to the accelerations
             moveParticle(sharedBuff,localBuff,indexes[i]);
             //This is to kick out particles that escape the rectangle (0,1)x(0,1), so we just delete the index.
@@ -558,19 +656,25 @@ int main(int argc, char *argv[]){
     int *indexes, i;
     char filename[100];
 
-    printf("NBody with %d arguments.\n",argc);
+    printf("NBody with %d arguments. ",argc);
+    if(argc > 4) {
+        printf("Graphics ON. ");
+    } else {
+        printf("Graphics OFF. ");
+    }
     StartTime = clock();
 
 
 	if(argc>1){
 		nShared=atoi(argv[1]);
 		if(argc>2){
-			steps=atoi(argv[2]);
-            if(argc>4){
-                M=atoi(argv[4]);
-            }
-		}
+		  steps=atoi(argv[2]);
+		} if(argc>5){
+            M=atoi(argv[5]);
+        }
 	}
+
+    printf("Execution with %d threads.\n",M);
 
     if(argc>3 && access(argv[3], F_OK) == 0)
     {
@@ -676,16 +780,62 @@ int main(int argc, char *argv[]){
             data->remainingThreads = M;
         	buildTree(data);
 
+            // Variables for concurrency
+            pthread_t *tids = malloc(sizeof(pthread_t) * 4);
+            int tids_index = 0;
+            int possibleSubThreads = 0;
+            int remainingThreadsPerSubThread = 0;
+            int extraThreadsPerSubThread = 0;
+            int remainingThreads = M;
+
         	for(i=0;i<nLocal;i++){
 				//Set initial accelerations to zero
             	localBuff[AX(indexes[i])]=0;
             	localBuff[AY(indexes[i])]=0;
             	int s;
+                // Calculate how many childres we have
+                for(s=0;s<4;s++){
+                    if(tree->children[s]!=NULL)
+                        possibleSubThreads++;
+                }
+
+                remainingThreadsPerSubThread = remainingThreads / possibleSubThreads;
+                extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
+
             	for(s=0;s<4;s++){
 					//Recursively calculate accelerations
-                	if(tree->children[s]!=NULL)
-                		calculateForce(tree->children[s],sharedBuff,localBuff,indexes[i]);
+                	if(tree->children[s]!=NULL){
+                        //Create the CalculateForce struct
+                        struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
+                        forceData->tree = tree->children[s];
+                        forceData->sharedBuff = sharedBuff;
+                        forceData->localBuff = localBuff;
+                        forceData->index = indexes[i];
+                        forceData->remainingThreads = 0;
+                        // If there are free threads to be created, we execute the next recursive call concurrently.
+                        if(remainingThreads > 0) {
+                            int assignedThreadsToSubThread = remainingThreadsPerSubThread;
+
+                            if (extraThreadsPerSubThread > 0) {
+                                assignedThreadsToSubThread++;
+                                extraThreadsPerSubThread--;
+                            }
+
+                            forceData->remainingThreads = assignedThreadsToSubThread;
+
+                            remainingThreads = remainingThreads - assignedThreadsToSubThread;
+                            pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData);
+                            tids_index++;
+                        } else {
+                            calculateForce(forceData);
+                        }
+                    }
             	}
+
+                for(s=0;s<tids_index;s++) {
+                    pthread_join(tids[s], NULL);
+                }
+                tids_index = 0;
 				//Calculate new position
             	moveParticle(sharedBuff,localBuff,indexes[i]);
             	//Kick out particle if it went out of the box (0,1)x(0,1)
