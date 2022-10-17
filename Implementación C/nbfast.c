@@ -308,17 +308,17 @@ void buildTree(struct BuildTreeStruct* data){
                 perror("Error joining the buildTree [NE children] thread: ");
                 exit(-1);
             }
-        if (NW_Tid != 0) 
+        if (NW_Tid != 0)
             if(pthread_join(NW_Tid, NULL)){
                 perror("Error joining the buildTree [NW children] thread: ");
                 exit(-1);
             }
-        if (SW_Tid != 0) 
+        if (SW_Tid != 0)
             if(pthread_join(SW_Tid, NULL)){
                 perror("Error joining the buildTree [SW children] thread: ");
                 exit(-1);
             }
-        if (SE_Tid != 0) 
+        if (SE_Tid != 0)
             if(pthread_join(SE_Tid, NULL)){
                 perror("Error joining the buildTree [SE children] thread: ");
                 exit(-1);
@@ -591,14 +591,14 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
 
         //We build the tree, which needs a pointer to the initial node, the buffer holding position and mass of the particles, indexes and number of particles
         // Create a BuildTreeStruct for passing the params to the buildTree function
-        struct BuildTreeStruct* data = malloc(sizeof(struct BuildTreeStruct));
-        data->tree = tree;
-        data->sharedBuff = sharedBuff;
-        data->indexes = indexes;
-        data->nShared = nShared;
-        data->remainingThreads = M;
+        struct BuildTreeStruct* treeData = malloc(sizeof(struct BuildTreeStruct));
+        treeData->tree = tree;
+        treeData->sharedBuff = sharedBuff;
+        treeData->indexes = indexes;
+        treeData->nShared = nShared;
+        treeData->remainingThreads = M;
 
-        buildTree(data);
+        buildTree(treeData);
 
         // Variables for concurrency
         pthread_t *tids = malloc(sizeof(pthread_t) * 4);
@@ -672,6 +672,8 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                 i--;
             }
         }
+
+        free(tids);
 
         SaveGalaxy(count, nShared, indexes, sharedBuff);
 
@@ -838,6 +840,7 @@ int main(int argc, char *argv[]){
             data->nShared = nShared;
             data->remainingThreads = M;
         	buildTree(data);
+            free(data);
 
             // Variables for concurrency
             pthread_t *tids = malloc(sizeof(pthread_t) * 4);
@@ -900,6 +903,7 @@ int main(int argc, char *argv[]){
                         exit(-1);
                     }
                 }
+                free(tids);
                 tids_index = 0;
 				//Calculate new position
             	moveParticle(sharedBuff,localBuff,indexes[i]);
