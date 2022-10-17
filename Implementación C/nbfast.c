@@ -303,10 +303,27 @@ void buildTree(struct BuildTreeStruct* data){
         node->CMX=0;
         node->CMY=0;
         // Wait for the 4 node trees creation to finish
-        if (NE_Tid != 0) pthread_join(NE_Tid, NULL);
-        if (NW_Tid != 0) pthread_join(NW_Tid, NULL);
-        if (SW_Tid != 0) pthread_join(SW_Tid, NULL);
-        if (SE_Tid != 0) pthread_join(SE_Tid, NULL);
+        if (NE_Tid != 0)
+            if(pthread_join(NE_Tid, NULL)){
+                perror("Error joining the buildTree [NE children] thread: ");
+                exit(-1);
+            }
+        if (NW_Tid != 0) 
+            if(pthread_join(NW_Tid, NULL)){
+                perror("Error joining the buildTree [NW children] thread: ");
+                exit(-1);
+            }
+        if (SW_Tid != 0) 
+            if(pthread_join(SW_Tid, NULL)){
+                perror("Error joining the buildTree [SW children] thread: ");
+                exit(-1);
+            }
+        if (SE_Tid != 0) 
+            if(pthread_join(SE_Tid, NULL)){
+                perror("Error joining the buildTree [SE children] thread: ");
+                exit(-1);
+            }
+
 		//Now that we have finished building the 4 trees beneath this node, we calculate the Center of Mass
 		//based on the center of mass of the children
         for(i=0;i<4;i++){
@@ -397,7 +414,10 @@ void calculateForce(struct CalculateForceStruct* data){
                 }
             }
             for(i=0;i<tids_index;i++) {
-                pthread_join(tids[i], NULL);
+                if(pthread_join(tids[i], NULL)){
+                    perror("Error joining the calculateForce thread: ");
+                    exit(-1);
+                }
             }
             tids_index = 0;
         }
@@ -633,7 +653,10 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                 }
             }
             for(s=0;s<tids_index;s++) {
-                pthread_join(tids[s], NULL);
+                if(pthread_join(tids[s], NULL)){
+                    perror("Error joining the calculateForce [graphic mode] thread: ");
+                    exit(-1);
+                }
             }
             tids_index = 0;
             //We calculate the new position of the particles according to the accelerations
@@ -797,7 +820,10 @@ int main(int argc, char *argv[]){
         }
 
         // Wait for it to finish
-        pthread_join(graphicTid, NULL);
+        if(pthread_join(graphicTid, NULL)){
+            perror("Error joining the graphic thread: ");
+            exit(-1);
+        }
 	} else {
 #endif
 		//This is the pure algorithm, without visualization
@@ -869,7 +895,10 @@ int main(int argc, char *argv[]){
             	}
 
                 for(s=0;s<tids_index;s++) {
-                    pthread_join(tids[s], NULL);
+                    if(pthread_join(tids[s], NULL)){
+                        perror("Error joining the calculateForce [console mode] thread: ");
+                        exit(-1);
+                    }
                 }
                 tids_index = 0;
 				//Calculate new position
