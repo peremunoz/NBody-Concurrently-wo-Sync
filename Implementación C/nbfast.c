@@ -83,7 +83,144 @@ struct CalculateForceStruct{
     int remainingThreads;
 };
 
-void buildTree(struct BuildTreeStruct* data){
+void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
+    if(n==1){ //This is an external node!
+        node->external=1;
+        node->CMX=shrdBuff[PX(indexes[0])];
+        node->CMY=shrdBuff[PY(indexes[0])];
+        node->mass=shrdBuff[MASS(indexes[0])];
+    } else {
+        node->external=0;
+        //Arrays of indexes of particles per quartile
+        int *NEi = (int *) malloc(sizeof(int)*n);
+        int *NWi = (int *) malloc(sizeof(int)*n);
+        int *SWi = (int *) malloc(sizeof(int)*n);
+        int *SEi = (int *) malloc(sizeof(int)*n);
+        int NWc=0, SWc=0,SEc=0, NEc=0;
+
+        int i;
+        /** For each particle we will check where is it located relative to the geometric center,
+            to sort them into the 4 children nodes**/
+        for(i=0;i<n;i++){
+            if(shrdBuff[PY(indexes[i])] < node->GCY ){ //South half
+                if(shrdBuff[PX(indexes[i])] < node->GCX){ //West wing
+                    SWi[SWc]=indexes[i];
+                    SWc++;
+                } else {
+                    SEi[SEc]=indexes[i];
+                    SEc++;
+                }
+            } else { //North half
+                if(shrdBuff[PX(indexes[i])] < node->GCX){ //West wing
+                    NWi[NWc]=indexes[i];
+                    NWc++;
+                } else {
+                    NEi[NEc]=indexes[i];
+                    NEc++;
+                }
+            }
+        }
+        //If there are particles in the NorthWest quarter
+        if(NEc>0){
+            //This instruction declares a new node in the position 0
+            node->children[0]= malloc(sizeof *node->children[0]);
+            //We give the values of the Low Left and Top Right corner, and also the geometric center.
+            node->children[0]->TRX=node->TRX;
+            node->children[0]->TRY=node->TRY;
+            node->children[0]->LLX=node->GCX;
+            node->children[0]->LLY=node->GCY;
+            node->children[0]->GCX=(node->GCX+node->TRX)/2;
+            node->children[0]->GCY=(node->GCY+node->TRY)/2;
+            //We build a tree in the new node, with the particles that are inside
+            buildTree(node->children[0],shrdBuff,NEi,NEc);
+        } else {
+            //If not, we set the children to null
+            node->children[0]=NULL;
+        }
+        //The next three blocks are exactly the same thing but for the other three nodes
+        if(NWc>0){
+            node->children[1]= malloc(sizeof *node->children[1]);
+            node->children[1]->TRX=node->GCX;
+            node->children[1]->TRY=node->TRY;
+            node->children[1]->LLX=node->LLX;
+            node->children[1]->LLY=node->GCY;
+            node->children[1]->GCX=(node->LLX+node->GCX)/2;
+            node->children[1]->GCY=(node->GCY+node->TRY)/2;
+            buildTree(node->children[1],shrdBuff,NWi,NWc);
+        } else {
+            node->children[1]=NULL;
+        }
+        if(SWc>0){
+            node->children[2]= malloc(sizeof *node->children[2]);
+            node->children[2]->TRX=node->GCX;
+            node->children[2]->TRY=node->GCY;
+            node->children[2]->LLX=node->LLX;
+            node->children[2]->LLY=node->LLY;
+            node->children[2]->GCX=(node->LLX+node->GCX)/2;
+            node->children[2]->GCY=(node->LLY+node->GCY)/2;
+            buildTree(node->children[2],shrdBuff,SWi,SWc);
+        } else {
+            node->children[2]=NULL;
+        }
+        if(SEc>0){
+            node->children[3]= malloc(sizeof *node->children[3]);
+            node->children[3]->TRX=node->TRX;
+            node->children[3]->TRY=node->GCY;
+            node->children[3]->LLX=node->GCX;
+            node->children[3]->LLY=node->LLY;
+            node->children[3]->GCX=(node->GCX+node->TRX)/2;
+            node->children[3]->GCY=(node->LLY+node->GCY)/2;
+            buildTree(node->children[3],shrdBuff,SEi,SEc);
+        } else {
+            node->children[3]=NULL;
+        }
+        node->mass=0;
+        node->CMX=0;
+        node->CMY=0;
+        //Now that we have finished building the 4 trees beneath this node, we calculate the Center of Mass
+        //based on the center of mass of the children
+        for(i=0;i<4;i++){
+            if(node->children[i]!=NULL){
+                node->mass+=node->children[i]->mass;
+                node->CMX+=node->children[i]->CMX*node->children[i]->mass;
+                node->CMY+=node->children[i]->CMY*node->children[i]->mass;
+            }
+        }
+        node->CMX=node->CMX/node->mass;
+        node->CMY=node->CMY/node->mass;
+        //And tadaaa
+    }
+}
+
+void calculateForce(struct Node *tree, double *shrdBuff, double *localBuff, int index){
+    double distance = sqrt((tree->CMX-shrdBuff[PX(index)])*(tree->CMX-shrdBuff[PX(index)])+
+                           (tree->CMY-shrdBuff[PY(index)])*(tree->CMY-shrdBuff[PY(index)]));
+    //First we check if the node is not actually the same particle we are calculating
+    if(distance>0){
+        //Now, we know it is not because the is some distance between the Center of Mass and the particle
+        //If the node is external (only contains one particle) or is far away enough, we calculate the force with the center of mass
+        if(distance>rcutoff || tree->external){
+            double f;
+            if(distance<rlimit){
+                f=G*tree->mass/(rlimit*rlimit*distance);
+            } else {
+                f=G*tree->mass/(distance*distance*distance);
+            }
+            localBuff[AX(index)]+=f*(tree->CMX-shrdBuff[PX(index)]);
+            localBuff[AY(index)]+=f*(tree->CMY-shrdBuff[PY(index)]);
+        } else {
+            //If not, we recursively call the calculateForce() function in the children that are not empty.
+            int i;
+            for(i=0;i<4;i++){
+                if(tree->children[i]!=NULL){
+                    calculateForce(tree->children[i],shrdBuff,localBuff,index);
+                }
+            }
+        }
+    }
+}
+
+void buildTreeThread(struct BuildTreeStruct* data){
     // Unpack the variables from the data struct
     struct Node* node = data->tree;
     double* shrdBuff = data->sharedBuff;
@@ -140,10 +277,10 @@ void buildTree(struct BuildTreeStruct* data){
         if(NWc>0) possibleSubThreads++;
         if(SWc>0) possibleSubThreads++;
         if(SEc>0) possibleSubThreads++;
+
         // How many threads can we assign to each subThread
         remainingThreadsPerSubThread = remainingThreads / possibleSubThreads;
         extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
-
 
 		//If there are particles in the NorthWest quarter
         if(NEc>0){
@@ -157,15 +294,15 @@ void buildTree(struct BuildTreeStruct* data){
             node->children[0]->GCX=(node->GCX+node->TRX)/2;
             node->children[0]->GCY=(node->GCY+node->TRY)/2;
 			//We build a tree in the new node, with the particles that are inside
-            // Create the build tree struct
-            struct BuildTreeStruct* NE_Data = malloc(sizeof(struct BuildTreeStruct));
-            NE_Data->tree = node->children[0];
-            NE_Data->sharedBuff = shrdBuff;
-            NE_Data->indexes = NEi;
-            NE_Data->nShared = NEc;
-            NE_Data->remainingThreads = 0;
             // If we have remaining threads to create, we build the sub-tree concurrently
             if (remainingThreads > 0) {
+                // Create the build tree struct only if we have to create a thread
+                struct BuildTreeStruct* NE_Data = malloc(sizeof(struct BuildTreeStruct));
+                NE_Data->tree = node->children[0];
+                NE_Data->sharedBuff = shrdBuff;
+                NE_Data->indexes = NEi;
+                NE_Data->nShared = NEc;
+
                 int assignedThreadsToSubThread = remainingThreadsPerSubThread;
 
                 if (extraThreadsPerSubThread > 0) {
@@ -176,12 +313,12 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 NE_Data->remainingThreads = assignedThreadsToSubThread;
-                if(pthread_create(&NE_Tid, NULL, (void *(*) (void *)) buildTree, NE_Data)){
-                    perror("Error creating the buildTree [NE children] thread: ");
+                if(pthread_create(&NE_Tid, NULL, (void *(*)(void *)) buildTreeThread, NE_Data)){
+                    perror("Error creating the buildTreeThread [NE children] thread: ");
                     exit(-1);
                 }
-            } else {
-                buildTree(NE_Data);
+            } else { // If we don't have threads remaining, we execute the normal function for saving space and time
+                buildTree(node->children[0], shrdBuff, NEi, NEc);
             }
         } else {
 			//If not, we set the children to null
@@ -196,15 +333,16 @@ void buildTree(struct BuildTreeStruct* data){
             node->children[1]->LLY=node->GCY;
             node->children[1]->GCX=(node->LLX+node->GCX)/2;
             node->children[1]->GCY=(node->GCY+node->TRY)/2;
-            // Create the build tree struct
-            struct BuildTreeStruct* NW_Data = malloc(sizeof(struct BuildTreeStruct));
-            NW_Data->tree = node->children[1];
-            NW_Data->sharedBuff = shrdBuff;
-            NW_Data->indexes = NWi;
-            NW_Data->nShared = NWc;
-            NW_Data->remainingThreads = 0;
             // If we have remaining threads to create, we build the sub-tree concurrently
             if (remainingThreads > 0) {
+                // Create the build tree struct
+                struct BuildTreeStruct* NW_Data = malloc(sizeof(struct BuildTreeStruct));
+                NW_Data->tree = node->children[1];
+                NW_Data->sharedBuff = shrdBuff;
+                NW_Data->indexes = NWi;
+                NW_Data->nShared = NWc;
+                NW_Data->remainingThreads = 0;
+
                 int assignedThreadsToSubThread = remainingThreadsPerSubThread;
 
                 if (extraThreadsPerSubThread > 0) {
@@ -215,12 +353,12 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 NW_Data->remainingThreads = assignedThreadsToSubThread;
-                if(pthread_create(&NW_Tid, NULL, (void *(*) (void *)) buildTree, NW_Data)){
-                    perror("Error creating the buildTree [NW children] thread: ");
+                if(pthread_create(&NW_Tid, NULL, (void *(*)(void *)) buildTreeThread, NW_Data)){
+                    perror("Error creating the buildTreeThread [NW children] thread: ");
                     exit(-1);
                 }
             } else {
-                buildTree(NW_Data);
+                buildTree(node->children[1], shrdBuff, NWi, NWc);
             }
         } else {
             node->children[1]=NULL;
@@ -233,15 +371,16 @@ void buildTree(struct BuildTreeStruct* data){
             node->children[2]->LLY=node->LLY;
             node->children[2]->GCX=(node->LLX+node->GCX)/2;
             node->children[2]->GCY=(node->LLY+node->GCY)/2;
-            // Create the build tree struct
-            struct BuildTreeStruct* SW_Data = malloc(sizeof(struct BuildTreeStruct));
-            SW_Data->tree = node->children[2];
-            SW_Data->sharedBuff = shrdBuff;
-            SW_Data->indexes = SWi;
-            SW_Data->nShared = SWc;
-            SW_Data->remainingThreads = 0;
             // If we have remaining threads to create, we build the sub-tree concurrently
             if (remainingThreads > 0) {
+                // Create the build tree struct
+                struct BuildTreeStruct* SW_Data = malloc(sizeof(struct BuildTreeStruct));
+                SW_Data->tree = node->children[2];
+                SW_Data->sharedBuff = shrdBuff;
+                SW_Data->indexes = SWi;
+                SW_Data->nShared = SWc;
+                SW_Data->remainingThreads = 0;
+
                 int assignedThreadsToSubThread = remainingThreadsPerSubThread;
 
                 if (extraThreadsPerSubThread > 0) {
@@ -252,12 +391,12 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 SW_Data->remainingThreads = assignedThreadsToSubThread;
-                if(pthread_create(&SW_Tid, NULL, (void *(*) (void *)) buildTree, SW_Data)){
-                    perror("Error creating the buildTree [SW children] thread: ");
+                if(pthread_create(&SW_Tid, NULL, (void *(*)(void *)) buildTreeThread, SW_Data)){
+                    perror("Error creating the buildTreeThread [SW children] thread: ");
                     exit(-1);
                 }
             } else {
-                buildTree(SW_Data);
+                buildTree(node->children[2], shrdBuff, SWi, SWc);
             }
         } else {
             node->children[2]=NULL;
@@ -270,15 +409,16 @@ void buildTree(struct BuildTreeStruct* data){
             node->children[3]->LLY=node->LLY;
             node->children[3]->GCX=(node->GCX+node->TRX)/2;
             node->children[3]->GCY=(node->LLY+node->GCY)/2;
-            // Create the build tree struct
-            struct BuildTreeStruct* SE_Data = malloc(sizeof(struct BuildTreeStruct));
-            SE_Data->tree = node->children[3];
-            SE_Data->sharedBuff = shrdBuff;
-            SE_Data->indexes = SEi;
-            SE_Data->nShared = SEc;
-            SE_Data->remainingThreads = 0;
             // If we have remaining threads to create, we build the sub-tree concurrently
             if (remainingThreads > 0) {
+                // Create the build tree struct
+                struct BuildTreeStruct* SE_Data = malloc(sizeof(struct BuildTreeStruct));
+                SE_Data->tree = node->children[3];
+                SE_Data->sharedBuff = shrdBuff;
+                SE_Data->indexes = SEi;
+                SE_Data->nShared = SEc;
+                SE_Data->remainingThreads = 0;
+
                 int assignedThreadsToSubThread = remainingThreadsPerSubThread;
 
                 if (extraThreadsPerSubThread > 0) {
@@ -289,12 +429,12 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 SE_Data->remainingThreads = assignedThreadsToSubThread;
-                if(pthread_create(&SE_Tid, NULL, (void *(*) (void *)) buildTree, SE_Data)){
-                    perror("Error creating the buildTree [SE children] thread: ");
+                if(pthread_create(&SE_Tid, NULL, (void *(*)(void *)) buildTreeThread, SE_Data)){
+                    perror("Error creating the buildTreeThread [SE children] thread: ");
                     exit(-1);
                 }
             } else {
-                buildTree(SE_Data);
+                buildTree(node->children[3], shrdBuff, SEi, SEc);
             }
         } else {
             node->children[3]=NULL;
@@ -305,22 +445,22 @@ void buildTree(struct BuildTreeStruct* data){
         // Wait for the 4 node trees creation to finish
         if (NE_Tid != 0)
             if(pthread_join(NE_Tid, NULL)){
-                perror("Error joining the buildTree [NE children] thread: ");
+                perror("Error joining the buildTreeThread [NE children] thread: ");
                 exit(-1);
             }
         if (NW_Tid != 0)
             if(pthread_join(NW_Tid, NULL)){
-                perror("Error joining the buildTree [NW children] thread: ");
+                perror("Error joining the buildTreeThread [NW children] thread: ");
                 exit(-1);
             }
         if (SW_Tid != 0)
             if(pthread_join(SW_Tid, NULL)){
-                perror("Error joining the buildTree [SW children] thread: ");
+                perror("Error joining the buildTreeThread [SW children] thread: ");
                 exit(-1);
             }
         if (SE_Tid != 0)
             if(pthread_join(SE_Tid, NULL)){
-                perror("Error joining the buildTree [SE children] thread: ");
+                perror("Error joining the buildTreeThread [SE children] thread: ");
                 exit(-1);
             }
 
@@ -339,7 +479,7 @@ void buildTree(struct BuildTreeStruct* data){
     }
 }
 
-void calculateForce(struct CalculateForceStruct* data){
+void calculateForceThread(struct CalculateForceStruct* data){
     // Unpack the information from the data struct
     struct Node *tree = data->tree;
     double* shrdBuff = data->sharedBuff;
@@ -370,7 +510,7 @@ void calculateForce(struct CalculateForceStruct* data){
             localBuff[AX(index)]+=f*(tree->CMX-shrdBuff[PX(index)]);
             localBuff[AY(index)]+=f*(tree->CMY-shrdBuff[PY(index)]);
         } else {
-			//If not, we recursively call the calculateForce() function in the children that are not empty.
+			//If not, we recursively call the calculateForceThread() function in the children that are not empty.
             int i;
             //First we calculate the valid children of the node for assigning threads correctly.
             for(i=0;i<4;i++){
@@ -384,15 +524,16 @@ void calculateForce(struct CalculateForceStruct* data){
 
             for(i=0;i<4;i++){
                 if(tree->children[i]!=NULL){
-                    //Create the CalculateForce struct
-                    struct CalculateForceStruct* data = malloc(sizeof(struct CalculateForceStruct));
-                    data->tree = tree->children[i];
-                    data->sharedBuff = shrdBuff;
-                    data->localBuff = localBuff;
-                    data->index = index;
-                    data->remainingThreads = 0;
                     // If there are free threads to be created, we execute the next recursive call concurrently.
                     if(remainingThreads > 0) {
+                        // Create the CalculateForce struct only if we have threads available.
+                        struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
+                        forceData->tree = tree->children[i];
+                        forceData->sharedBuff = shrdBuff;
+                        forceData->localBuff = localBuff;
+                        forceData->index = index;
+                        forceData->remainingThreads = 0;
+
                         int assignedThreadsToSubThread = remainingThreadsPerSubThread;
 
                         if (extraThreadsPerSubThread > 0) {
@@ -400,22 +541,22 @@ void calculateForce(struct CalculateForceStruct* data){
                             extraThreadsPerSubThread--;
                         }
 
-                        data->remainingThreads = assignedThreadsToSubThread;
+                        forceData->remainingThreads = assignedThreadsToSubThread;
 
                         remainingThreads = remainingThreads - assignedThreadsToSubThread;
-                        if(pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, data)){
-                            perror("Error creating the calculateForce thread: ");
+                        if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
+                            perror("Error creating the calculateForceThread thread: ");
                             exit(-1);
                         }
                         tids_index++;
-                    } else {
-                        calculateForce(data);
+                    } else { // If we don't have threads, we execute the sequential function without doing any malloc
+                        calculateForce(tree->children[i], shrdBuff, localBuff, index);
                     }
                 }
             }
             for(i=0;i<tids_index;i++) {
                 if(pthread_join(tids[i], NULL)){
-                    perror("Error joining the calculateForce thread: ");
+                    perror("Error joining the calculateForceThread thread: ");
                     exit(-1);
                 }
             }
@@ -590,23 +731,27 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
         double t=glfwGetTime();
 
         //We build the tree, which needs a pointer to the initial node, the buffer holding position and mass of the particles, indexes and number of particles
-        // Create a BuildTreeStruct for passing the params to the buildTree function
-        struct BuildTreeStruct* treeData = malloc(sizeof(struct BuildTreeStruct));
-        treeData->tree = tree;
-        treeData->sharedBuff = sharedBuff;
-        treeData->indexes = indexes;
-        treeData->nShared = nShared;
-        treeData->remainingThreads = M;
+        //If we have some free threads to be created, init the struct and run the function
+        if(M > 0) {
+            // Create a BuildTreeStruct for passing the params to the buildTreeThread function
+            struct BuildTreeStruct* treeData = malloc(sizeof(struct BuildTreeStruct));
+            treeData->tree = tree;
+            treeData->sharedBuff = sharedBuff;
+            treeData->indexes = indexes;
+            treeData->nShared = nShared;
+            treeData->remainingThreads = M;
 
-        buildTree(treeData);
+            buildTreeThread(treeData);
+        } else {
+            buildTree(tree, sharedBuff, indexes, nShared);
+        }
+
 
         // Variables for concurrency
-        pthread_t *tids = malloc(sizeof(pthread_t) * 4);
         int tids_index = 0;
         int possibleSubThreads = 0;
         int remainingThreadsPerSubThread = 0;
         int extraThreadsPerSubThread = 0;
-        int remainingThreads = M;
 
         //Now that it is built, we calculate the forces per particle
         for(int i=0;i<nLocal;i++){
@@ -618,18 +763,24 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                 if(tree->children[s]!=NULL)
                     possibleSubThreads++;
             }
+
+            pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
+
+            remainingThreadsPerSubThread = M / possibleSubThreads;
+            extraThreadsPerSubThread = M % possibleSubThreads;
+
             for(s=0;s<4;s++){
                 //Recursively calculate accelerations
                 if(tree->children[s]!=NULL){
-                    //Create the CalculateForce struct
-                    struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
-                    forceData->tree = tree->children[s];
-                    forceData->sharedBuff = sharedBuff;
-                    forceData->localBuff = localBuff;
-                    forceData->index = indexes[i];
-                    forceData->remainingThreads = 0;
                     // If there are free threads to be created, we execute the next recursive call concurrently.
-                    if(remainingThreads > 0) {
+                    if(M > 0) {
+                        //Create the CalculateForce struct
+                        struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
+                        forceData->tree = tree->children[s];
+                        forceData->sharedBuff = sharedBuff;
+                        forceData->localBuff = localBuff;
+                        forceData->index = indexes[i];
+                        forceData->remainingThreads = 0;
 
                         int assignedThreadsToSubThread = remainingThreadsPerSubThread;
 
@@ -639,22 +790,22 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                         }
 
                         forceData->remainingThreads = assignedThreadsToSubThread;
-                        remainingThreads = remainingThreads - assignedThreadsToSubThread;
+                        M = M - assignedThreadsToSubThread;
 
-                        if(pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData)){
-                            perror("Error creating the calculateForce [graphic mode] thread: ");
+                        if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
+                            perror("Error creating the calculateForceThread [graphic mode] thread: ");
                             exit(-1);
                         }
-
                         tids_index++;
+
                     } else {
-                        calculateForce(forceData);
+                        calculateForce(tree->children[s], sharedBuff, localBuff, indexes[i]);
                     }
                 }
             }
             for(s=0;s<tids_index;s++) {
                 if(pthread_join(tids[s], NULL)){
-                    perror("Error joining the calculateForce [graphic mode] thread: ");
+                    perror("Error joining the calculateForceThread [graphic mode] thread: ");
                     exit(-1);
                 }
             }
@@ -672,8 +823,6 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                 i--;
             }
         }
-
-        free(tids);
 
         SaveGalaxy(count, nShared, indexes, sharedBuff);
 
@@ -832,14 +981,14 @@ int main(int argc, char *argv[]){
 		//system("mkdir res");
     	while(count<=steps){
 			//First we build the tree
-            // Create a BuildTreeStruct for passing the params to the buildTree function
+            // Create a BuildTreeStruct for passing the params to the buildTreeThread function
             struct BuildTreeStruct* data = malloc(sizeof(struct BuildTreeStruct));
             data->tree = tree;
             data->sharedBuff = sharedBuff;
             data->indexes = indexes;
             data->nShared = nShared;
             data->remainingThreads = M;
-        	buildTree(data);
+            buildTreeThread(data);
             free(data);
 
             // Variables for concurrency
@@ -886,20 +1035,20 @@ int main(int argc, char *argv[]){
                             forceData->remainingThreads = assignedThreadsToSubThread;
 
                             remainingThreads = remainingThreads - assignedThreadsToSubThread;
-                            if(pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData)){
-                                perror("Error creating the calculateForce [console mode] thread: ");
+                            if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
+                                perror("Error creating the calculateForceThread [console mode] thread: ");
                                 exit(-1);
                             }
                             tids_index++;
                         } else {
-                            calculateForce(forceData);
+                            calculateForceThread(forceData);
                         }
                     }
             	}
 
                 for(s=0;s<tids_index;s++) {
                     if(pthread_join(tids[s], NULL)){
-                        perror("Error joining the calculateForce [console mode] thread: ");
+                        perror("Error joining the calculateForceThread [console mode] thread: ");
                         exit(-1);
                     }
                 }
