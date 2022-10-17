@@ -1,3 +1,12 @@
+/* ---------------------------------------------------------------
+Práctica 1.
+Código fuente : nbfast.c
+Grau Informàtica
+Pere Muñoz Figuerol - 48252062V
+--------------------------------------------------------------- */
+
+// Usage: NBody* <particle number> <iterations number> [particle file] [toggle graphical output] [threads number]
+
 #include<stdio.h>
 #include<string.h>
 #include<stdlib.h>
