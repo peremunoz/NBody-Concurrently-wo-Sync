@@ -5,7 +5,8 @@ Grau Informàtica
 Pere Muñoz Figuerol - 48252062V
 --------------------------------------------------------------- */
 
-// Usage: NBody* <particle number> <iterations number> [particle file] [toggle graphical output] [threads number]
+// Usage: NBody* <particle number> <iterations number> [particle file] [0: console mode / other: graphic mode] [threads number]
+// You can leave any of the [optional] parameters empty with the - character
 
 #include<stdio.h>
 #include<string.h>
@@ -175,7 +176,10 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 NE_Data->remainingThreads = assignedThreadsToSubThread;
-                pthread_create(&NE_Tid, NULL, (void *(*) (void *)) buildTree, NE_Data);
+                if(pthread_create(&NE_Tid, NULL, (void *(*) (void *)) buildTree, NE_Data)){
+                    perror("Error creating the buildTree [NE children] thread: ");
+                    exit(-1);
+                }
             } else {
                 buildTree(NE_Data);
             }
@@ -211,7 +215,10 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 NW_Data->remainingThreads = assignedThreadsToSubThread;
-                pthread_create(&NW_Tid, NULL, (void *(*) (void *)) buildTree, NW_Data);
+                if(pthread_create(&NW_Tid, NULL, (void *(*) (void *)) buildTree, NW_Data)){
+                    perror("Error creating the buildTree [NW children] thread: ");
+                    exit(-1);
+                }
             } else {
                 buildTree(NW_Data);
             }
@@ -245,7 +252,10 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 SW_Data->remainingThreads = assignedThreadsToSubThread;
-                pthread_create(&SW_Tid, NULL, (void *(*) (void *)) buildTree, SW_Data);
+                if(pthread_create(&SW_Tid, NULL, (void *(*) (void *)) buildTree, SW_Data)){
+                    perror("Error creating the buildTree [SW children] thread: ");
+                    exit(-1);
+                }
             } else {
                 buildTree(SW_Data);
             }
@@ -279,7 +289,10 @@ void buildTree(struct BuildTreeStruct* data){
                 remainingThreads = remainingThreads - assignedThreadsToSubThread;
 
                 SE_Data->remainingThreads = assignedThreadsToSubThread;
-                pthread_create(&SE_Tid, NULL, (void *(*) (void *)) buildTree, SE_Data);
+                if(pthread_create(&SE_Tid, NULL, (void *(*) (void *)) buildTree, SE_Data)){
+                    perror("Error creating the buildTree [SE children] thread: ");
+                    exit(-1);
+                }
             } else {
                 buildTree(SE_Data);
             }
@@ -373,7 +386,10 @@ void calculateForce(struct CalculateForceStruct* data){
                         data->remainingThreads = assignedThreadsToSubThread;
 
                         remainingThreads = remainingThreads - assignedThreadsToSubThread;
-                        pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, data);
+                        if(pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, data)){
+                            perror("Error creating the calculateForce thread: ");
+                            exit(-1);
+                        }
                         tids_index++;
                     } else {
                         calculateForce(data);
@@ -604,7 +620,12 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
 
                         forceData->remainingThreads = assignedThreadsToSubThread;
                         remainingThreads = remainingThreads - assignedThreadsToSubThread;
-                        pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData);
+
+                        if(pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData)){
+                            perror("Error creating the calculateForce [graphic mode] thread: ");
+                            exit(-1);
+                        }
+
                         tids_index++;
                     } else {
                         calculateForce(forceData);
@@ -666,10 +687,10 @@ int main(int argc, char *argv[]){
     char filename[100];
 
     printf("NBody with %d arguments. ",argc);
-    if(argc > 4) {
-        printf("Graphics ON. ");
-    } else {
+    if(atoi(argv[4]) == 0) {
         printf("Graphics OFF. ");
+    } else {
+        printf("Graphics ON. ");
     }
     StartTime = clock();
 
@@ -753,7 +774,7 @@ int main(int argc, char *argv[]){
     int count=1;
 	//If we need to visualize
 #ifdef D_GLFW_SUPPORT
-	if(argc>3){
+	if(atoi(argv[4])!=0){
         // Create struct for passing through argument all the necessary data for GraphicInterface function
         struct GraphicInterfaceStruct* data = malloc(sizeof (struct GraphicInterfaceStruct));
         data->tree = tree;
@@ -770,7 +791,10 @@ int main(int argc, char *argv[]){
 
         // Execute the graphic version in another thread
         pthread_t graphicTid;
-        pthread_create(&graphicTid, NULL, (void *(*) (void *)) GraphicInterface, data);
+        if(pthread_create(&graphicTid, NULL, (void *(*) (void *)) GraphicInterface, data)) {
+            perror("Error creating the graphic thread: ");
+            exit(-1);
+        }
 
         // Wait for it to finish
         pthread_join(graphicTid, NULL);
@@ -833,7 +857,10 @@ int main(int argc, char *argv[]){
                             forceData->remainingThreads = assignedThreadsToSubThread;
 
                             remainingThreads = remainingThreads - assignedThreadsToSubThread;
-                            pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData);
+                            if(pthread_create(&tids[tids_index], NULL, (void *(*) (void *)) calculateForce, forceData)){
+                                perror("Error creating the calculateForce [console mode] thread: ");
+                                exit(-1);
+                            }
                             tids_index++;
                         } else {
                             calculateForce(forceData);
