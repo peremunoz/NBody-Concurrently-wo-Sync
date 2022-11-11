@@ -101,9 +101,11 @@ public class CollisionCheckFloat extends Kernel {
                 thread.join();
             } catch (InterruptedException e) {
                 e.printStackTrace();
+                SimulationFloat.cancelThreads(threads);
             }
         }
     }
+
 
     public void checkAllCollisions(int start, int end) {
         for (int i = start; i < end; i++) {
@@ -125,4 +127,5 @@ public class CollisionCheckFloat extends Kernel {
             }
         }
     }
+
 }

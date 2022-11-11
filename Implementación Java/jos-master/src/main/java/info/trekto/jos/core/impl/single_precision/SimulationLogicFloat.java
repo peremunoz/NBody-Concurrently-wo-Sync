@@ -182,6 +182,7 @@ public class SimulationLogicFloat extends Kernel implements SimulationLogic {
                 thread.join();
             } catch (InterruptedException e) {
                 e.printStackTrace();
+                SimulationFloat.cancelThreads(threads);
             }
         }
     }
@@ -224,6 +225,7 @@ public class SimulationLogicFloat extends Kernel implements SimulationLogic {
                 thread.join();
             } catch (InterruptedException e) {
                 e.printStackTrace();
+                SimulationFloat.cancelThreads(threads);
             }
         }
     }
