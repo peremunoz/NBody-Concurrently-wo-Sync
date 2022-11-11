@@ -1,8 +1,17 @@
+/*
+Práctica 2.
+Código fuente: CollisionCheckFloat.java
+Grau Informàtica
+48252062V - Pere Muñoz Figuerol
+*/
+
 package info.trekto.jos.core.impl.single_precision;
 
 import com.aparapi.Kernel;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 public class CollisionCheckFloat extends Kernel {
     public final boolean[] collisions;
@@ -62,8 +71,42 @@ public class CollisionCheckFloat extends Kernel {
         }
     }
 
-    public void checkAllCollisions() {
-        for (int i = 0; i < positionX.length; i++) {
+    public void checkAllCollisionsThread(int numberOfThreads) {
+        // Calculate variables for concurrent execution
+        int numberOfObjects = positionX.length;
+        int numberOfObjectsPerThread = numberOfObjects / numberOfThreads;
+        int numberOfObjectsLeft = numberOfObjects % numberOfThreads;
+
+        // Create threads
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < numberOfThreads; i++) {
+            // Calculate start and end index for this thread
+            int start = i * numberOfObjectsPerThread;
+            int end = start + numberOfObjectsPerThread;
+            if (i == numberOfThreads - 1) {
+                end += numberOfObjectsLeft;
+            }
+            final int finalStart = start;
+            final int finalEnd = end;
+            Thread thread = new Thread(() -> {
+                checkAllCollisions(finalStart, finalEnd);
+            });
+            threads.add(thread);
+            thread.start();
+        }
+
+        // Wait for all threads to finish
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void checkAllCollisions(int start, int end) {
+        for (int i = start; i < end; i++) {
             if (!deleted[i]) {
                 boolean collision = false;
                 for (int j = 0; j < n; j++) {
@@ -82,6 +125,4 @@ public class CollisionCheckFloat extends Kernel {
             }
         }
     }
-
-
 }
