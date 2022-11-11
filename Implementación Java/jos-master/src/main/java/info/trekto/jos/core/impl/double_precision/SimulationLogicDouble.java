@@ -1,16 +1,21 @@
+/*
+Práctica 2.
+Código fuente: SimulationLogicDouble.java
+Grau Informàtica
+48252062V - Pere Muñoz Figuerol
+*/
+
 package info.trekto.jos.core.impl.double_precision;
 
 import com.aparapi.Kernel;
 import info.trekto.jos.core.SimulationLogic;
+import info.trekto.jos.core.impl.single_precision.SimulationFloat;
 import info.trekto.jos.core.model.SimulationObject;
 import info.trekto.jos.core.model.impl.TripleNumber;
 import info.trekto.jos.core.numbers.New;
 import info.trekto.jos.core.numbers.Number;
 
-import java.util.AbstractMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import static info.trekto.jos.core.numbers.NumberFactoryProxy.ZERO;
 
@@ -146,9 +151,39 @@ public class SimulationLogicDouble extends Kernel implements SimulationLogic {
         }
     }
 
-    public void calculateAllNewValues() {
-        for (int i = 0; i < positionX.length; i++)
-            calculateNewValues(i);
+    public void calculateAllNewValues(int numberOfThreads) {
+        // Calculate variables for concurrent execution
+        int numberOfObjects = positionX.length;
+        int numberOfObjectsPerThread = numberOfObjects / numberOfThreads;
+        int numberOfObjectsLeft = numberOfObjects % numberOfThreads;
+
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < numberOfThreads; i++) {
+            // Determine the number of objects for this thread
+            int start = i * numberOfObjectsPerThread;
+            int end = start + numberOfObjectsPerThread;
+            if (i == numberOfThreads - 1) {
+                end += numberOfObjectsLeft;
+            }
+            final int finalStart = start;
+            final int finalEnd = end;
+            Thread thread = new Thread(() -> {
+                for (int j = finalStart; j < finalEnd; j++) {
+                    calculateNewValues(j);
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        // Wait for all threads to finish before next iteration
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                SimulationFloat.cancelThreads(threads);
+            }
+        }
     }
 
     private void bounceFromScreenBorders(int i) {
@@ -161,12 +196,45 @@ public class SimulationLogicDouble extends Kernel implements SimulationLogic {
         }
     }
 
-    public void processCollisions() {
+    public void processCollisionsThread(int numberOfThreads) {
+        // Calculate variables for concurrent execution
+        int numberOfObjects = positionX.length;
+        int numberOfObjectsPerThread = numberOfObjects / numberOfThreads;
+        int numberOfObjectsLeft = numberOfObjects % numberOfThreads;
+
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < numberOfThreads; i++) {
+            // Determine the number of objects for this thread
+            int start = i * numberOfObjectsPerThread;
+            int end = start + numberOfObjectsPerThread;
+            if (i == numberOfThreads - 1) {
+                end += numberOfObjectsLeft;
+            }
+            final int finalStart = start;
+            final int finalEnd = end;
+            Thread thread = new Thread(() -> {
+                processCollisions(finalStart, finalEnd);
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        // Wait for all threads to finish before next iteration
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                SimulationFloat.cancelThreads(threads);
+            }
+        }
+    }
+
+    public void processCollisions(int start, int end) {
         Set<Map.Entry<Integer, Integer>> processedElasticCollision = null;
         if (!mergeOnCollision) {
             processedElasticCollision = new HashSet<>();
         }
-        for (int i = 0; i < positionX.length; i++) {
+        for (int i = start; i < end; i++) {
             if (mergeOnCollision && deleted[i]) {
                 continue;
             }

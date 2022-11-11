@@ -1,3 +1,10 @@
+/*
+Práctica 2.
+Código fuente: SimulationDouble.java
+Grau Informàtica
+48252062V - Pere Muñoz Figuerol
+*/
+
 package info.trekto.jos.core.impl.double_precision;
 
 import com.aparapi.Range;
@@ -35,6 +42,8 @@ public class SimulationDouble extends SimulationAP implements Simulation {
     private final double[] zeroArray;
     private final SimulationAP cpuSimulation;
     private boolean executingOnCpu;
+    // Number of threads attribute
+    private final int numberOfThreads;
 
     public SimulationDouble(SimulationProperties properties, SimulationAP cpuSimulation) {
         super(properties);
@@ -60,6 +69,8 @@ public class SimulationDouble extends SimulationAP implements Simulation {
         collisionCheckRange = Range.create(n);
         collisionCheckKernel.setExecutionMode(GPU);
         this.cpuSimulation = cpuSimulation;
+        // We set the number of threads to the number of threads input by the user
+        this.numberOfThreads = properties.getNumberOfThreads();
     }
 
     public void doIteration(boolean saveCurrentIterationToFile, long iterationCounter) {
@@ -78,7 +89,7 @@ public class SimulationDouble extends SimulationAP implements Simulation {
         if (GPU.equals(simulationLogic.getExecutionMode()))
             simulationLogic.execute(simulationLogicRange);
         else
-            simulationLogic.calculateAllNewValues();
+            simulationLogic.calculateAllNewValues(numberOfThreads);
         if (iterationCounter == 1) {
             if (!GPU.equals(simulationLogic.getExecutionMode())) {
                 warn(logger, "Simulation logic execution mode = " + simulationLogic.getExecutionMode());
@@ -92,7 +103,7 @@ public class SimulationDouble extends SimulationAP implements Simulation {
         if (GPU.equals(simulationLogic.getExecutionMode()))
             collisionCheckKernel.execute(collisionCheckRange);
         else
-            collisionCheckKernel.checkAllCollisions();
+            collisionCheckKernel.checkAllCollisionsThread(numberOfThreads);
         if (iterationCounter == 1) {
             if (!GPU.equals(collisionCheckKernel.getExecutionMode())) {
                 warn(logger, "Collision detection execution mode = " + collisionCheckKernel.getExecutionMode());
@@ -101,7 +112,7 @@ public class SimulationDouble extends SimulationAP implements Simulation {
 
         /* If collision/s exists execute sequentially on a single thread */
         if (collisionCheckKernel.collisionExists()) {
-            simulationLogic.processCollisions();
+            simulationLogic.processCollisionsThread(numberOfThreads);
         }
 
         if (properties.isSaveToFile() && saveCurrentIterationToFile) {

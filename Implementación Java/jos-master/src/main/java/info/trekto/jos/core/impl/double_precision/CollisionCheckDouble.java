@@ -1,8 +1,18 @@
+/*
+Práctica 2.
+Código fuente: CollisionCheckDouble.java
+Grau Informàtica
+48252062V - Pere Muñoz Figuerol
+*/
+
 package info.trekto.jos.core.impl.double_precision;
 
 import com.aparapi.Kernel;
+import info.trekto.jos.core.impl.single_precision.SimulationFloat;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 public class CollisionCheckDouble extends Kernel {
     public final boolean[] collisionExists;
@@ -59,12 +69,46 @@ public class CollisionCheckDouble extends Kernel {
         }
     }
 
+    public void checkAllCollisionsThread(int numberOfThreads) {
+        // Calculate variables for concurrent execution
+        int numberOfObjects = positionX.length;
+        int numberOfObjectsPerThread = numberOfObjects / numberOfThreads;
+        int numberOfObjectsLeft = numberOfObjects % numberOfThreads;
 
-    public void checkAllCollisions() {
+        // Create threads
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < numberOfThreads; i++) {
+            // Calculate start and end index for this thread
+            int start = i * numberOfObjectsPerThread;
+            int end = start + numberOfObjectsPerThread;
+            if (i == numberOfThreads - 1) {
+                end += numberOfObjectsLeft;
+            }
+            final int finalStart = start;
+            final int finalEnd = end;
+            Thread thread = new Thread(() -> {
+                checkAllCollisions(finalStart, finalEnd);
+            });
+            threads.add(thread);
+            thread.start();
+        }
+
+        // Wait for all threads to finish
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                SimulationFloat.cancelThreads(threads);
+            }
+        }
+    }
+
+    public void checkAllCollisions(int start, int end) {
         if (collisionExists[0]) {
             return;
         }
-        for (int i = 0; i < positionX.length; i++) {
+        for (int i = start; i < end; i++) {
             if (!deleted[i]) {
                 for (int j = 0; j < n; j++) {
                     if (i != j && !deleted[j]) {
