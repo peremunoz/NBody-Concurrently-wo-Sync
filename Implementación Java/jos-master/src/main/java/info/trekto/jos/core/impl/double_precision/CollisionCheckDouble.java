@@ -99,7 +99,7 @@ public class CollisionCheckDouble extends Kernel {
                 thread.join();
             } catch (InterruptedException e) {
                 e.printStackTrace();
-                SimulationFloat.cancelThreads(threads);
+                SimulationDouble.cancelThreads(threads);
             }
         }
     }

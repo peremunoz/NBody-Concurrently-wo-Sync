@@ -316,4 +316,11 @@ public class SimulationDouble extends SimulationAP implements Simulation {
     public SimulationAP getCpuSimulation() {
         return cpuSimulation;
     }
+
+    public static void cancelThreads(List<Thread> threads) {
+        for (Thread thread : threads) {
+            thread.interrupt();
+        }
+        System.exit(-1);
+    }
 }

@@ -181,7 +181,7 @@ public class SimulationLogicDouble extends Kernel implements SimulationLogic {
                 thread.join();
             } catch (InterruptedException e) {
                 e.printStackTrace();
-                SimulationFloat.cancelThreads(threads);
+                SimulationDouble.cancelThreads(threads);
             }
         }
     }
@@ -224,7 +224,7 @@ public class SimulationLogicDouble extends Kernel implements SimulationLogic {
                 thread.join();
             } catch (InterruptedException e) {
                 e.printStackTrace();
-                SimulationFloat.cancelThreads(threads);
+                SimulationDouble.cancelThreads(threads);
             }
         }
     }
