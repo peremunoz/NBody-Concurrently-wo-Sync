@@ -1,3 +1,10 @@
+/*
+Práctica 2.
+Código fuente: SimulationLogicAP.java
+Grau Informàtica
+48252062V - Pere Muñoz Figuerol
+*/
+
 package info.trekto.jos.core.impl.arbitrary_precision;
 
 import info.trekto.jos.core.Simulation;
@@ -77,7 +84,41 @@ public class SimulationLogicAP implements SimulationLogic {
     }
 
     public void calculateAllNewValues() {
-        calculateNewValues(0, simulation.getObjects().size());
+        // Calculation of variables for concurrent processing
+        int numberOfObjects = simulation.getObjects().size();
+        int numberOfThreads = simulation.getProperties().getNumberOfThreads();
+        int numberOfObjectsPerThread = numberOfObjects / numberOfThreads;
+        int numberOfObjectsLeft = numberOfObjects % numberOfThreads;
+
+        List<Thread> threads = new ArrayList<Thread>();
+        for (int i = 0; i < numberOfThreads; i++) {
+            // Calculate the indexes of the objects for the current thread
+            int fromIndex = i * numberOfObjectsPerThread;
+            int toIndex = fromIndex + numberOfObjectsPerThread;
+            if (i == numberOfThreads - 1) {
+                toIndex += numberOfObjectsLeft;
+            }
+            final int fromIndexFinal = fromIndex;
+            final int toIndexFinal = toIndex;
+            Thread thread = new Thread(new Runnable() {
+                public void run() {
+                    calculateNewValues(fromIndexFinal, toIndexFinal);
+                }
+            });
+            // Add the thread to the Thread ArrayList and start it
+            threads.add(thread);
+            thread.start();
+        }
+
+        // Wait for all threads to finish
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                SimulationAP.cancelThreads(threads);
+            }
+        }
     }
 
     public void processCollisions(Simulation simulation) {

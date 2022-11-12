@@ -1,3 +1,10 @@
+/*
+Práctica 2.
+Código fuente: SimulationAP.java
+Grau Informàtica
+48252062V - Pere Muñoz Figuerol
+*/
+
 package info.trekto.jos.core.impl.arbitrary_precision;
 
 import info.trekto.jos.core.ForceCalculator;
@@ -15,10 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static info.trekto.jos.core.Controller.C;
 // import static info.trekto.jos.core.impl.arbitrary_precision.SimulationRecursiveAction.threshold;
@@ -48,6 +52,13 @@ public class SimulationAP implements Simulation {
     public SimulationAP(SimulationProperties properties) {
         simulationLogic = new SimulationLogicAP(this);
         this.properties = properties;
+    }
+
+    public static void cancelThreads(List<Thread> threads) {
+        for (Thread thread : threads) {
+            thread.interrupt();
+        }
+        System.exit(-1);
     }
 
     public boolean collisionExists(List<SimulationObject> objects) {
@@ -93,9 +104,40 @@ public class SimulationAP implements Simulation {
         simulationLogic.calculateAllNewValues();
 
         /* Collision */
-        CollisionCheckAP collisionCheck = new CollisionCheckAP(0, auxiliaryObjects.size(), this);
+        // Calculate the variables for concurrent execution
+        int numberOfThreads = properties.getNumberOfThreads();
+        int numberOfObjects = auxiliaryObjects.size();
+        int objectsPerThread = numberOfObjects / numberOfThreads;
+        int objectsLeft = numberOfObjects % numberOfThreads;
         collisionExists = false;
-        collisionCheck.checkAllCollisions();
+
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < numberOfThreads; i++) {
+            // Calculate the number of objects for the current thread
+            int start = i * objectsPerThread;
+            int end = start + objectsPerThread;
+            if (i == numberOfThreads - 1) {
+                end += objectsLeft;
+            }
+            // Create the CollisionCheckAP object, with the start and end indexes defined, and start the thread
+            CollisionCheckAP collisionCheck = new CollisionCheckAP(start, end, this);
+            Thread thread = new Thread(new Runnable() {
+                public void run() {
+                    collisionCheck.checkAllCollisions();
+                }
+            });
+            thread.start();
+            threads.add(thread);
+        }
+
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                cancelThreads(threads);
+            }
+        }
 
         /* If collision/s exists execute sequentially on a single thread */
         if (collisionExists) {
