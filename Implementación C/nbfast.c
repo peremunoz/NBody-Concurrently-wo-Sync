@@ -83,6 +83,13 @@ struct CalculateForceStruct{
     int remainingThreads;
 };
 
+void cancelThreads(pthread_t* tids, int nThreads){
+    for(int i=0;i<nThreads;i++){
+        pthread_cancel(tids[i]);
+    }
+    exit(-1);
+}
+
 void buildTree(struct Node* node, double* shrdBuff, int *indexes, int n){
     if(n==1){ //This is an external node!
         node->external=1;
@@ -546,7 +553,7 @@ void calculateForceThread(struct CalculateForceStruct* data){
                         remainingThreads = remainingThreads - assignedThreadsToSubThread;
                         if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
                             perror("Error creating the calculateForceThread thread: ");
-                            exit(-1);
+                            cancelThreads(tids, tids_index);
                         }
                         tids_index++;
                     } else { // If we don't have threads, we execute the sequential function without doing any malloc
@@ -557,7 +564,7 @@ void calculateForceThread(struct CalculateForceStruct* data){
             for(i=0;i<tids_index;i++) {
                 if(pthread_join(tids[i], NULL)){
                     perror("Error joining the calculateForceThread thread: ");
-                    exit(-1);
+                    cancelThreads(tids, tids_index);
                 }
             }
             tids_index = 0;
@@ -794,7 +801,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
 
                         if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
                             perror("Error creating the calculateForceThread [graphic mode] thread: ");
-                            exit(-1);
+                            cancelThreads(tids, tids_index);
                         }
                         tids_index++;
 
@@ -806,7 +813,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
             for(s=0;s<tids_index;s++) {
                 if(pthread_join(tids[s], NULL)){
                     perror("Error joining the calculateForceThread [graphic mode] thread: ");
-                    exit(-1);
+                    cancelThreads(tids, tids_index);
                 }
             }
             tids_index = 0;
@@ -1037,7 +1044,7 @@ int main(int argc, char *argv[]){
                             remainingThreads = remainingThreads - assignedThreadsToSubThread;
                             if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
                                 perror("Error creating the calculateForceThread [console mode] thread: ");
-                                exit(-1);
+                                cancelThreads(tids, tids_index);
                             }
                             tids_index++;
                         } else {
@@ -1049,7 +1056,7 @@ int main(int argc, char *argv[]){
                 for(s=0;s<tids_index;s++) {
                     if(pthread_join(tids[s], NULL)){
                         perror("Error joining the calculateForceThread [console mode] thread: ");
-                        exit(-1);
+                        cancelThreads(tids, tids_index);
                     }
                 }
                 free(tids);
