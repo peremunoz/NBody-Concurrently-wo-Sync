@@ -506,7 +506,6 @@ void calculateForceThread(struct CalculateForceStruct* data){
     double distance = sqrt((tree->CMX-shrdBuff[PX(index)])*(tree->CMX-shrdBuff[PX(index)])+
                            (tree->CMY-shrdBuff[PY(index)])*(tree->CMY-shrdBuff[PY(index)]));
     // Necessary variables for concurrency
-    pthread_t *tids = malloc(sizeof(pthread_t) * 4);
     int tids_index = 0;
     int possibleSubThreads = 0;
     int remainingThreadsPerSubThread = 0;
@@ -539,6 +538,7 @@ void calculateForceThread(struct CalculateForceStruct* data){
             extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
 
             struct CalculateForceStruct *forceData = malloc(sizeof(struct CalculateForceStruct) * possibleSubThreads);
+            pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
 
             for(i=0;i<4;i++){
                 if(tree->children[i]!=NULL){
@@ -578,6 +578,7 @@ void calculateForceThread(struct CalculateForceStruct* data){
                 }
                 free(&forceData[i]);
             }
+            free(tids);
             tids_index = 0;
         }
     }
@@ -750,9 +751,9 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
 
         //We build the tree, which needs a pointer to the initial node, the buffer holding position and mass of the particles, indexes and number of particles
         //If we have some free threads to be created, init the struct and run the function
+        struct BuildTreeStruct* treeData = malloc(sizeof(struct BuildTreeStruct));
         if(M > 0) {
             // Create a BuildTreeStruct for passing the params to the buildTreeThread function
-            struct BuildTreeStruct* treeData = malloc(sizeof(struct BuildTreeStruct));
             treeData->tree = tree;
             treeData->sharedBuff = sharedBuff;
             treeData->indexes = indexes;
@@ -782,10 +783,10 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                     possibleSubThreads++;
             }
 
-            pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
-
             remainingThreadsPerSubThread = M / possibleSubThreads;
             extraThreadsPerSubThread = M % possibleSubThreads;
+
+            pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
 
             for(s=0;s<4;s++){
                 //Recursively calculate accelerations
@@ -796,8 +797,8 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                         struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
                         forceData->tree = tree->children[s];
                         forceData->sharedBuff = sharedBuff;
-                        forceData->localBuff = localBuff;
                         forceData->index = indexes[i];
+                        forceData->localBuff = localBuff;
                         forceData->remainingThreads = 0;
 
                         int assignedThreadsToSubThread = remainingThreadsPerSubThread;
@@ -810,7 +811,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                         forceData->remainingThreads = assignedThreadsToSubThread;
                         M = M - assignedThreadsToSubThread;
 
-                        if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
+                        if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)) {
                             perror("Error creating the calculateForceThread [graphic mode] thread: ");
                             cancelThreads(tids, tids_index);
                         }
@@ -827,6 +828,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                     cancelThreads(tids, tids_index);
                 }
             }
+            free(tids);
             tids_index = 0;
             //We calculate the new position of the particles according to the accelerations
             moveParticle(sharedBuff,localBuff,indexes[i]);
@@ -863,6 +865,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
 
         //We advance one step
         count++;
+        free(treeData);
     }
     glfwTerminate();
     return 0;
@@ -1007,10 +1010,8 @@ int main(int argc, char *argv[]){
             data->nShared = nShared;
             data->remainingThreads = M;
             buildTreeThread(data);
-            free(data);
 
             // Variables for concurrency
-            pthread_t *tids = malloc(sizeof(pthread_t) * 4);
             int tids_index = 0;
             int possibleSubThreads = 0;
             int remainingThreadsPerSubThread = 0;
@@ -1030,6 +1031,8 @@ int main(int argc, char *argv[]){
 
                 remainingThreadsPerSubThread = remainingThreads / possibleSubThreads;
                 extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
+
+                pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
 
             	for(s=0;s<4;s++){
 					//Recursively calculate accelerations
@@ -1059,7 +1062,7 @@ int main(int argc, char *argv[]){
                             }
                             tids_index++;
                         } else {
-                            calculateForceThread(forceData);
+                            calculateForce(tree->children[s], sharedBuff, localBuff, indexes[i]);
                         }
                     }
             	}
@@ -1090,6 +1093,7 @@ int main(int argc, char *argv[]){
             ShowWritePartialResults(count,nOriginal, nShared, indexes, sharedBuff);
             //We advance one step
 			count++;
+            free(data);
 		}
 #ifdef D_GLFW_SUPPORT
 	}
