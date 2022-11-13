@@ -537,8 +537,8 @@ void calculateForceThread(struct CalculateForceStruct* data){
             remainingThreadsPerSubThread = remainingThreads / possibleSubThreads;
             extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
 
-            struct CalculateForceStruct *forceData = malloc(sizeof(struct CalculateForceStruct) * possibleSubThreads);
             pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
+            struct CalculateForceStruct *forceData = malloc(sizeof(struct CalculateForceStruct) * possibleSubThreads);
 
             for(i=0;i<4;i++){
                 if(tree->children[i]!=NULL){
@@ -558,7 +558,7 @@ void calculateForceThread(struct CalculateForceStruct* data){
                             extraThreadsPerSubThread--;
                         }
 
-                        forceData->remainingThreads = assignedThreadsToSubThread;
+                        forceData[tids_index].remainingThreads = assignedThreadsToSubThread;
 
                         remainingThreads = remainingThreads - assignedThreadsToSubThread;
                         if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, &forceData[tids_index])){
@@ -576,8 +576,8 @@ void calculateForceThread(struct CalculateForceStruct* data){
                     perror("Error joining the calculateForceThread thread: ");
                     cancelThreads(tids, tids_index);
                 }
-                free(&forceData[i]);
             }
+            free(forceData);
             free(tids);
             tids_index = 0;
         }
@@ -787,6 +787,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
             extraThreadsPerSubThread = M % possibleSubThreads;
 
             pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
+            struct CalculateForceStruct *forceData = malloc(sizeof(struct CalculateForceStruct) * possibleSubThreads);
 
             for(s=0;s<4;s++){
                 //Recursively calculate accelerations
@@ -794,12 +795,11 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                     // If there are free threads to be created, we execute the next recursive call concurrently.
                     if(M > 0) {
                         //Create the CalculateForce struct
-                        struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
-                        forceData->tree = tree->children[s];
-                        forceData->sharedBuff = sharedBuff;
-                        forceData->index = indexes[i];
-                        forceData->localBuff = localBuff;
-                        forceData->remainingThreads = 0;
+                        forceData[tids_index].tree = tree->children[s];
+                        forceData[tids_index].sharedBuff = sharedBuff;
+                        forceData[tids_index].index = indexes[i];
+                        forceData[tids_index].localBuff = localBuff;
+                        forceData[tids_index].remainingThreads = 0;
 
                         int assignedThreadsToSubThread = remainingThreadsPerSubThread;
 
@@ -808,10 +808,10 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                             extraThreadsPerSubThread--;
                         }
 
-                        forceData->remainingThreads = assignedThreadsToSubThread;
+                        forceData[tids_index].remainingThreads = assignedThreadsToSubThread;
                         M = M - assignedThreadsToSubThread;
 
-                        if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)) {
+                        if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, &forceData[tids_index])) {
                             perror("Error creating the calculateForceThread [graphic mode] thread: ");
                             cancelThreads(tids, tids_index);
                         }
@@ -828,6 +828,7 @@ int GraphicInterface(struct GraphicInterfaceStruct *data) {
                     cancelThreads(tids, tids_index);
                 }
             }
+            free(forceData);
             free(tids);
             tids_index = 0;
             //We calculate the new position of the particles according to the accelerations
@@ -1033,17 +1034,18 @@ int main(int argc, char *argv[]){
                 extraThreadsPerSubThread = remainingThreads % possibleSubThreads;
 
                 pthread_t *tids = malloc(sizeof(pthread_t) * possibleSubThreads);
+                struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct) * possibleSubThreads);
 
             	for(s=0;s<4;s++){
 					//Recursively calculate accelerations
                 	if(tree->children[s]!=NULL){
                         //Create the CalculateForce struct
-                        struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
-                        forceData->tree = tree->children[s];
-                        forceData->sharedBuff = sharedBuff;
-                        forceData->localBuff = localBuff;
-                        forceData->index = indexes[i];
-                        forceData->remainingThreads = 0;
+                        //struct CalculateForceStruct* forceData = malloc(sizeof(struct CalculateForceStruct));
+                        forceData[tids_index].tree = tree->children[s];
+                        forceData[tids_index].sharedBuff = sharedBuff;
+                        forceData[tids_index].localBuff = localBuff;
+                        forceData[tids_index].index = indexes[i];
+                        forceData[tids_index].remainingThreads = 0;
                         // If there are free threads to be created, we execute the next recursive call concurrently.
                         if(remainingThreads > 0) {
                             int assignedThreadsToSubThread = remainingThreadsPerSubThread;
@@ -1053,10 +1055,10 @@ int main(int argc, char *argv[]){
                                 extraThreadsPerSubThread--;
                             }
 
-                            forceData->remainingThreads = assignedThreadsToSubThread;
+                            forceData[tids_index].remainingThreads = assignedThreadsToSubThread;
 
                             remainingThreads = remainingThreads - assignedThreadsToSubThread;
-                            if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, forceData)){
+                            if(pthread_create(&tids[tids_index], NULL, (void *(*)(void *)) calculateForceThread, &forceData[tids_index])) {
                                 perror("Error creating the calculateForceThread [console mode] thread: ");
                                 cancelThreads(tids, tids_index);
                             }
@@ -1073,6 +1075,7 @@ int main(int argc, char *argv[]){
                         cancelThreads(tids, tids_index);
                     }
                 }
+                free(forceData);
                 free(tids);
                 tids_index = 0;
 				//Calculate new position
