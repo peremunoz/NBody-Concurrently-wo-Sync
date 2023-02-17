@@ -2,7 +2,7 @@
 Práctica 2.
 Código fuente: CollisionCheckFloat.java
 Grau Informàtica
-48252062V - Pere Muñoz Figuerol
+Pere Muñoz Figuerol
 */
 
 package info.trekto.jos.core.impl.single_precision;
