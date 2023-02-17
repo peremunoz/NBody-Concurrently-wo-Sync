@@ -2,7 +2,7 @@
 Práctica 2.
 Código fuente: SimulationLogicDouble.java
 Grau Informàtica
-48252062V - Pere Muñoz Figuerol
+Pere Muñoz Figuerol
 */
 
 package info.trekto.jos.core.impl.double_precision;
